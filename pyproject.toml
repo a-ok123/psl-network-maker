@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "network-maker"
+version = "0.1.0"
+description = ""
+authors = ["a-ok123 <alexey@pastel.network>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+apscheduler = "^3.10.4"
+pastel-gateway-sdk = "^0.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
