@@ -7,6 +7,8 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+python-dotenv = "^1.0.1"
+pydantic-settings = "^2.1.0"
 apscheduler = "^4.0.0a4"
 pastel-gateway-sdk = "^0.1.1"
 urllib3 = "^2.0.7"
@@ -16,11 +18,17 @@ accelerate = "^0.26.1"
 zipp = "^3.17.0"
 huggingface-hub = "^0.20.2"
 llama_cpp_python = "^0.2.33"
-torch = {version = "^2.2.0+cu121", source = "pytorch"}
-torchvision = {version = "^0.17.0+cu121", source = "pytorch"}
-python-dotenv = "^1.0.1"
-pydantic-settings = "^2.1.0"
 compel = "^2.0.2"
+torch = [
+    { version = "^2.2.0+cu121", source = "pytorch", markers = "sys_platform == 'win32'" },
+    { version = "^2.2.0", markers = "sys_platform == 'darwin'" },
+    { version = "^2.2.0", markers = "sys_platform == 'linux'" }
+]
+torchvision = [
+    { version = "^0.17.0+cu121", source = "pytorch", markers = "sys_platform == 'win32'" },
+    { version = "^0.17.0", markers = "sys_platform == 'darwin'" },
+    { version = "^0.17.0", markers = "sys_platform == 'linux'" }
+]
 
 [[tool.poetry.source]]
 name = "pytorch"
