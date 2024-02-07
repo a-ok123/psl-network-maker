@@ -5,48 +5,7 @@ import json
 
 model_id = "stabilityai/stable-diffusion-2-base"
 
-prompt = """
-{
-"ImageType": "image", "Genre": "Futuristic", "Emotion": "Excitement", "Scene": "City", "Actors": "Humans", "LocationType": "Transportation", "Tags": ["flying cars", "neon lights", "skyscrapers", "high-tech gadgets"],"AspectRatio": "16:9", "Media":  {"Style": "Digital Painting", "ColorPalette": "Vibrant"}
-}
-"""
-
-
-def json_to_compel_prompt(json_prompt):
-    json_data = json.loads(json_prompt)
-    flat_list = []
-
-    def flatten_element(key, value):
-        if isinstance(value, dict):
-            for sub_key, sub_value in value.items():
-                flatten_element(f"{sub_key}", sub_value)
-        elif isinstance(value, list):
-            flat_list.append(', '.join(value))
-        else:
-            flat_list.append(value)
-    for k, v in json_data.items():
-        flatten_element(k, v)
-    # return '("{0}").and()'.format("\", \"".join(flat_list))
-    return ",".join(flat_list)
-
-
-def flatten_json_prompt(json_prompt):
-    json_data = json.loads(json_prompt)
-    flat_list = []
-
-    def flatten_element(key, value):
-        if isinstance(value, dict):
-            for sub_key, sub_value in value.items():
-                flatten_element(f"{sub_key}", sub_value)
-        elif isinstance(value, list):
-            flat_list.append(f"{key}: {', '.join(value)}")
-        else:
-            flat_list.append(f"{key}: {value}")
-    for k, v in json_data.items():
-        flatten_element(k, v)
-    return ", ".join(flat_list)
-
-use_gpu = False
+use_gpu = True
 if use_gpu:
     dtype = torch.float16
 else:
@@ -56,16 +15,17 @@ pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, to
 if use_gpu:
     pipe = pipe.to("cuda")
 
-
 neg_prompt = "lowres, bad_anatomy, error_body, error_hair, error_arm, error_hands, bad_hands, error_fingers, bad_fingers, missing_fingers, error_legs, bad_legs, multiple_legs, missing_legs, error_lighting, error_shadow, error_reflection, text, error, extra_digit, fewer_digits, cropped, worst_quality, low_quality, normal_quality, jpeg_artifacts, signature, watermark, username, blurry"
-prompt = flatten_json_prompt(prompt)
-# prompt = json_to_compel_prompt(prompt)
-print(prompt)
 
-# with Compel
+prompt = "A majestic starship soars through the cosmos, its sleek lines and glowing engines cutting through the inky blackness of space. The vessel's hull glints with a rainbow of colors, reflecting the light of distant stars. A squadron of smaller craft flank the ship, their wings and engines aglow as they dart and weave in formation. In the distance, a swirling nebula glows like a celestial jellyfish, its tendrils reaching out towards the ship like ethereal tentacles."
+prompt_parts = prompt.split(". ")
+prompt_with_add = "(" + ', '.join(['"' + s + '"' for s in prompt_parts]) + ").add"
+
 compel = Compel(tokenizer=pipe.tokenizer, text_encoder=pipe.text_encoder)
-conditioning = compel(prompt)
+conditioning = compel(prompt_with_add)
+# conditioning = compel(prompt)
 negative_conditioning = compel(neg_prompt)
 [conditioning, negative_conditioning] = compel.pad_conditioning_tensors_to_same_length([conditioning, negative_conditioning])
-image = pipe(prompt_embeds=conditioning, negative_propmt_embeds=negative_conditioning, num_inference_steps=50).images[0]
-image.save("testCompeln2-1.png")
+image = pipe(prompt_embeds=conditioning, negative_propmt_embeds=negative_conditioning, num_inference_steps=1000).images[0]
+# image = pipe(prompt=prompt, num_inference_steps=1000).images[0]
+image.save("testCompeln2-4.png")

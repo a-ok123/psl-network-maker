@@ -1,20 +1,29 @@
-import os
 from functools import lru_cache
 from pydantic_settings import BaseSettings
+import random
 
 
 class Settings(BaseSettings):
-    CREATE_TICKET_INTERVAL: int = 3
-    CHECK_INTERVAL: int = 300
-    GENERATE_IMAGE_INTERVAL: int = 2
     BASE_IMG_PATH: str = "images"
-    DB_NAME: str = "records.sqlite"
+    DB_NAME: str = "tickets.sqlite"
 
-    USE_GPU: bool = False
-    # PROMPT_MODEL_PATH: str = "D:\models\TheBloke\Llama-2-7B-Chat-GGUF\llama-2-7b-chat.Q5_K_M.gguf"
-    PROMPT_MODEL_PATH: str = "D:\models\TheBloke\llama-2-13b.Q8_0.gguf"
-    PROMPT_CHAT_FORMAT: str = "llama-2"
-    IMAGE_MODEL_ID: str = "stabilityai/stable-diffusion-2-base"
+    ENABLE_CREATE_TICKETS: bool = True
+    ENABLE_CHECK_STATUSES: bool = True
+    ENABLE_GENERATE_IMAGES: bool = True
+    CREATE_TICKET_INTERVAL: int = 300
+    CHECK_INTERVAL: int = 600
+    GENERATE_IMAGE_INTERVAL: int = 10
+
+    USE_GPU: bool
+    PROMPT_MODEL_PATH: str
+    PROMPT_CHAT_FORMAT: str
+    IMAGE_MODEL_ID: str
+    GRAMMAR_PATH: str
+
+    LLAMA_SYSTEM_PROMPT: str
+    LLAMA_USER_REQUEST: str
+    SD_ITERATIONS: int = 50
+    IMAGE_NEGATIVE_PROMPT: str
 
     class Config:
         env_file = ".env"
@@ -26,3 +35,55 @@ def get_settings():
 
 
 settings = get_settings()
+
+
+def biased_random() -> int:
+    return int(1 + (20-1) * (random.random() ** 2))
+
+
+def get_random_genre() -> str:
+    return random.choice(GENRE_LIST)
+
+
+GENRE_LIST = [
+    "Space Opera",
+    "Fantasy World",
+    "Magic Realm",
+    "Dystopian Future",
+    "Post-apocalyptic Landscape",
+    "Alien Invasion",
+    "Fairy Tale Kingdom",
+    "Medieval Setting",
+    "Steampunk Metropolis",
+    "Science Fiction Cityscape",
+    "Pirate Seascape",
+    "Astrological Imagery",
+    "Cryptid Forest",
+    "Mystical Island",
+    "Cosmic Landscape",
+    "Dreamlike Environment",
+    "Cybernetic Reality",
+    "Supernatural Phenomena",
+    "Epic Adventure",
+    "Gothic Manor",
+    "Abstract Art",
+    "Still Life",
+    "Portrait Photography",
+    "Wildlife Photography",
+    "Black and White",
+    "Cityscape Images",
+    "Fashion Photography",
+    "Landscape Images",
+    "Street Photography",
+    "Documentary Photography",
+    "Conceptual Art",
+    "Fine Art",
+    "Sports Photography",
+    "Travel Photography",
+    "Event Photography",
+    "Food Photography",
+    "Architectural Photography",
+    "Underwater Photography",
+    "Macro Photography",
+    "Wedding Photography"
+]

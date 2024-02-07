@@ -1,0 +1,8 @@
+# Pastel Network __gateway API bot__
+
+```
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py -n <mainnet|testnet|devnet> -k <your_psl_api_gateway_key>
+```
