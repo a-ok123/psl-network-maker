@@ -1,8 +1,11 @@
+from aiohttp import web
+import jinja2
+import aiohttp_jinja2
+
 import argparse
 import asyncio
 import json
 import os
-
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 import logging
@@ -18,6 +21,9 @@ from db_manager import SQLiteDB
 from image_generator import SDImageGenerator
 from prompt_generator import LlamaPromptGenerator
 from tools import execution_timer
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class TicketType(Enum):
@@ -48,6 +54,8 @@ class NetworkMaker:
         self.prompt_generator = LlamaPromptGenerator()
         self.client = GatewayApiClientAsync(network=self.network)
         self.client.set_auth_api_key(self.api_key)
+
+        self.statistics = {}
 
     @execution_timer
     async def generate_images(self):
@@ -121,10 +129,12 @@ class NetworkMaker:
                     ok = await self._register_cascade_ticket()
                 elif selected_type == TicketType.SENSE:
                     ok = await self._register_sense_ticket()
-                # elif selected_type == TicketType.NFT:
-                #     ok = await self._register_nft_ticket()
-                # elif selected_type == TicketType.COLLECTION:
-                #     ok = await self._register_collection_ticket()
+                elif selected_type == TicketType.NFT:
+                    ok = await self._register_cascade_ticket()              ### !!!! TEMPORARY
+                    # ok = await self._register_nft_ticket()
+                elif selected_type == TicketType.COLLECTION:
+                    ok = await self._register_sense_ticket()                ### !!!! TEMPORARY
+                    # ok = await self._register_collection_ticket()
 
                 if ok:
                     logging.info(f"create_ticket: DONE")
@@ -142,7 +152,7 @@ class NetworkMaker:
             logging.info("No images to process for Cascade, wait for next iteration")
             return False
         make_publicly_accessible = random.choice([True, False])
-        file_list, image_rec_id = [image_rec[6]], image_rec[0]
+        file_list, image_rec_id = [image_rec['file_path']], image_rec['id']
         output: RequestResult = await self.client.cascade_api.cascade_process_request(file_list,
                                                                                       make_publicly_accessible)
         res_id = reg_txid = act_txid = res_status = ""
@@ -166,7 +176,7 @@ class NetworkMaker:
             logging.info("No images to process for Sense, wait for next iteration")
             return False
         collection_act_txid, open_api_group_id = "", ""
-        file_list, image_rec_id = [image_rec[6]], image_rec[0]
+        file_list, image_rec_id = [image_rec['file_path']], image_rec['id']
         output: RequestResult = await self.client.sense_api.sense_submit_request(file_list,
                                                                                  collection_act_txid, open_api_group_id)
         res_id = reg_txid = act_txid = res_status = ""
@@ -190,11 +200,11 @@ class NetworkMaker:
             logging.info("No images to process for NFT, wait for next iteration")
             return False
         nft_details_payload = {
-            "description": image_rec[1],
-            "name": image_rec[2],
-            "creator_name": image_rec[3],
-            "keywords": image_rec[4],
-            "series_name": image_rec[5],
+            "description": image_rec['description'],
+            "name": image_rec['name'],
+            "creator_name": image_rec['creator_name'],
+            "keywords": image_rec['keywords'],
+            "series_name": image_rec['series_name'],
             "issued_copies": biased_random(),
             "green": random.choice([True, False]),
             "royalty": random.uniform(0.1, 10.0)
@@ -202,7 +212,7 @@ class NetworkMaker:
         nft_details_payload_str = json.dumps(nft_details_payload)
         collection_act_txid, open_api_group_id = "", ""
         make_publicly_accessible = random.choice([True, False])
-        file_list, image_rec_id = [image_rec[6]], image_rec[0]
+        file_list, image_rec_id = [image_rec['file_path']], image_rec['id']
         output: RequestResult = await self.client.nft_api.nft_process_request(file_list, nft_details_payload_str,
                                                                               make_publicly_accessible,
                                                                               collection_act_txid, open_api_group_id)
@@ -236,30 +246,48 @@ class NetworkMaker:
         while True:
             logging.info(f"check_statuses: Check ticket registration statuses")
             try:
-                all_tickets = await self.db.read_all_images()
-                logging.info("check_statuses: Total images: {}".format(len(all_tickets)))
-                await self.log_ticket_counts(self.db.get_cascade_counts, "Cascade")
-                await self.log_ticket_counts(self.db.get_sense_counts, "Sense")
-                await self.log_ticket_counts(self.db.get_nft_counts, "NFT")
-                await self.log_ticket_counts(self.db.get_collections_counts, "Collections")
+                await self.update_statuses()
 
-                await self._check_ticket_status(self.db.get_cascade_pending,
-                                                self.client.cascade_api.cascade_get_result,
-                                                self.db.update_cascade_status)
+                await self.collect_stats()
 
                 logging.info(f"check_statuses: DONE")
             except Exception as error:
                 logging.exception(error)
             await asyncio.sleep(settings.CHECK_INTERVAL)
 
-    @staticmethod
-    async def log_ticket_counts(get_counts_function, ticket_type):
+    async def update_statuses(self):
+        await self._check_ticket_status(self.db.get_cascade_pending,
+                                        self.client.cascade_api.cascade_get_result,
+                                        self.db.update_cascade_status)
+        await self._check_ticket_status(self.db.get_sense_pending,
+                                        self.client.sense_api.sense_get_result_by_id,
+                                        self.db.update_sense_status)
+        await self._check_ticket_status(self.db.get_nft_pending,
+                                        self.client.nft_api.nft_get_result_by_result_id,
+                                        self.db.update_nft_status)
+        # await self._check_ticket_status(self.db.get_collections_pending,
+        #                                 self.client.collection_api.collection_get_result,
+        #                                 self.db.update_collection_status)
+
+    async def collect_stats(self):
+        all_tickets = await self.db.read_all_images()
+        logging.info("check_statuses: Total images: {}".format(len(all_tickets)))
+        self.statistics['Total images'] = len(all_tickets)
+        await self.log_ticket_counts(self.db.get_cascade_counts, "Cascade")
+        await self.log_ticket_counts(self.db.get_sense_counts, "Sense")
+        await self.log_ticket_counts(self.db.get_nft_counts, "NFT")
+        await self.log_ticket_counts(self.db.get_collections_counts, "Collections")
+
+    async def log_ticket_counts(self, get_counts_function, ticket_type):
         nums = await get_counts_function()
         total = sum(count for status, count in nums)
         msg = f"\t{ticket_type} tickets: {total};"
+        stats = {'total': total}
         for status, count in nums:
             msg += f" {status}: {count}"
+            stats[status] = count
         logging.info(msg)
+        self.statistics[ticket_type] = stats
 
     @staticmethod
     async def _check_ticket_status(func_get_pending, func_get_result, func_update_status):
@@ -268,14 +296,14 @@ class NetworkMaker:
             return
         for ticket in pending:
             try:
-                res_id = ticket[4]
+                res_id = ticket['res_id']
                 result = await func_get_result(res_id)
                 if result:
                     res_status = result.result_status.value
-                    if res_status != ticket[2]:
+                    if res_status != ticket['status']:
                         reg_txid = result.registration_ticket_txid
                         act_txid = result.activation_ticket_txid
-                        await func_update_status(ticket[0], res_status, reg_txid, act_txid)
+                        await func_update_status(ticket['id'], res_status, reg_txid, act_txid)
                         logging.info(f"Cascade ticket status checked. Result ID {res_id}. "
                                      f"Request status: {res_status}")
                 else:
@@ -287,6 +315,15 @@ class NetworkMaker:
 
     async def run(self):
         await self.db.initialize_db()
+        app = web.Application()
+        aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(os.path.join(BASE_DIR, 'web')))
+        app.add_routes([web.get('/', self.show_statistics)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, port=8080)
+        await site.start()
+
+        # threading.Thread(target=web.run_app, args=(app,), kwargs={'port': 8080}, daemon=True).start()
         await asyncio.gather(
             self.generate_images(),
             self.create_ticket(),
@@ -294,6 +331,13 @@ class NetworkMaker:
         )
         await self.client.close()
         logging.info("Exiting...")
+
+    async def show_statistics(self, request):
+        # await self.collect_stats()
+        await self.update_statuses()
+        response = aiohttp_jinja2.render_template('statistics.html', request,
+                                                  {'statistics': self.statistics, 'network': self.network})
+        return response
 
 
 async def shutdown_tasks_and_cleanup(loop):

@@ -116,16 +116,19 @@ class SQLiteDB:
 
     async def read_all_images(self):
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT * FROM {self.images_table_name}") as cursor:
                 return await cursor.fetchall()
 
     async def find_image_for_cascade(self):
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT * FROM {self.images_table_name} WHERE cascade_id IS NULL") as cursor:
                 return await cursor.fetchone()
 
     async def find_image_for_sense_or_nft(self):
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT * FROM {self.images_table_name} "
                                   f"WHERE sense_id IS NULL AND nft_id is NULL ") as cursor:
                 return await cursor.fetchone()
@@ -202,6 +205,7 @@ class SQLiteDB:
 
     async def _get_pending_tickets(self, table_name: str):
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT * FROM {table_name} WHERE status != 'SUCCESS'") as cursor:
                 return await cursor.fetchall()
 
@@ -219,5 +223,6 @@ class SQLiteDB:
 
     async def _get_ticket_counts(self, table_name: str):
         async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT status, COUNT(*) FROM {table_name} GROUP BY status") as cursor:
                 return await cursor.fetchall()

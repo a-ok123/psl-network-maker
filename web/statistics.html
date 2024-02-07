@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statistics</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-5">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">Statistics Overview ({{network}})</h1>
+        <div class="bg-white shadow-md rounded-lg p-6">
+            <div class="mb-4">
+                <h2 class="text-xl font-semibold text-gray-700">Total images: <span class="font-normal">{{ statistics['Total images'] }}</span></h2>
+            </div>
+            {% for key, value in statistics.items() %}
+                {% if key != 'Total images' %}
+                    <div class="mb-4">
+                        <h3 class="text-lg font-semibold text-gray-700">{{ key }}</h3>
+                        <div class="ml-4">
+                            {% for sub_key, sub_value in value.items() %}
+                                <p>{{ sub_key }}: <span class="font-medium">{{ sub_value }}</span></p>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>
