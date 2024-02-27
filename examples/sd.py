@@ -1,7 +1,6 @@
 from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 import torch
 from compel import Compel
-import json
 
 model_id = "stabilityai/stable-diffusion-2-base"
 

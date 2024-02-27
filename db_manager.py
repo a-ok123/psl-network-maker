@@ -10,16 +10,31 @@ class Status(Enum):
 
 
 class SQLiteDB:
-    def __init__(self, db_path):
+    def __init__(self, db_path, network_name):
         self.db_path = db_path
         self.images_table_name = 'images'
-        self.cascade_table_name = 'cascade'
-        self.sense_table_name = 'sense'
-        self.nft_table_name = 'nft'
-        self.collection_table_name = 'collections'
+        self.cascade_table_name = f'cascade_{network_name}'
+        self.sense_table_name = f'sense_{network_name}'
+        self.nft_table_name = f'nft_{network_name}'
+        self.collection_table_name = f'collections_{network_name}'
+        self.initialized = False
+
+    async def _check_db(self) -> bool:
+        if not os.path.exists(self.db_path):
+            return False
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND "
+                                  f"name IN ('{self.images_table_name}', "
+                                  f"'{self.cascade_table_name}', "
+                                  f"'{self.sense_table_name}', "
+                                  f"'{self.nft_table_name}', "
+                                  f"'{self.collection_table_name}')") as cursor:
+                result = await cursor.fetchall()
+                return len(result) == 5
 
     async def initialize_db(self):
-        if not os.path.exists(self.db_path):
+        db_is_ok = await self._check_db()
+        if not db_is_ok:
             async with aiosqlite.connect(self.db_path) as db:
                 # collection_type is nft or sense
                 await db.execute(f'''
@@ -102,6 +117,7 @@ class SQLiteDB:
                 ''')
 
                 await db.commit()
+        self.initialized = True
 
     async def add_image(self, description: str, name: str, file_path: str,
                         creator_name: str = "pastel.network", keywords: str = None, series_name: str = None):
@@ -130,7 +146,20 @@ class SQLiteDB:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(f"SELECT * FROM {self.images_table_name} "
-                                  f"WHERE sense_id IS NULL AND nft_id is NULL ") as cursor:
+                                  f"WHERE sense_id IS NULL AND nft_id is NULL") as cursor:
+                return await cursor.fetchone()
+
+    async def number_of_images_for_cascade(self):
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(f"SELECT COUNT(*) FROM {self.images_table_name} WHERE cascade_id IS NULL") as cursor:
+                return await cursor.fetchone()
+
+    async def number_of_images_for_sense_or_nft(self):
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(f"SELECT COUNT(*) FROM {self.images_table_name} "
+                                  f"WHERE sense_id IS NULL AND nft_id is NULL") as cursor:
                 return await cursor.fetchone()
 
     async def add_cascade(self, img_id, res_status: str, req_id: str, res_id: str, reg_txid: str, act_txid: str,

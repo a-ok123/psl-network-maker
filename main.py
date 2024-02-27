@@ -49,7 +49,7 @@ class NetworkMaker:
         self.client = None
         self.loop = asyncio.get_event_loop()
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.db = SQLiteDB(settings.DB_NAME)
+        self.db = SQLiteDB(settings.DB_NAME, network)
         self.img_generator = SDImageGenerator()
         self.prompt_generator = LlamaPromptGenerator()
         self.client = GatewayApiClientAsync(network=self.network)
@@ -59,11 +59,17 @@ class NetworkMaker:
 
     @execution_timer
     async def generate_images(self):
-        if not settings.ENABLE_GENERATE_IMAGES:
-            logging.info("generate_images: Disabled")
-            return
         logging.info(f"generate_images: Starting task...")
+        showed = False
         while True:
+            if not settings.ENABLE_GENERATE_IMAGES:
+                if not showed:
+                    logging.info("generate_images: Disabled")
+                    showed = True
+                await asyncio.sleep(settings.GENERATE_IMAGE_INTERVAL)
+                continue
+            showed = False
+
             try:
                 prompt, file_name, file_path = await self.loop.run_in_executor(self.executor, self._generate_image)
                 logging.info(f"generate_images: Inserting new   image info into DB...")
@@ -116,12 +122,30 @@ class NetworkMaker:
                 return new_filename
 
     async def create_ticket(self):
-        if not settings.ENABLE_CREATE_TICKETS:
-            logging.info("create_ticket: Disabled")
-            return
         logging.info(f"create_ticket: Starting task...")
         while True:
-            selected_type: TicketType = random.choice(list(TicketType))
+            if not settings.ENABLE_CREATE_TICKETS:
+                logging.info("create_ticket: Disabled")
+                await asyncio.sleep(settings.CREATE_TICKET_INTERVAL)
+                continue
+            if not (settings.ENABLE_CASCADE or settings.ENABLE_SENSE or settings.ENABLE_NFT or settings.ENABLE_COLLECTIONS):
+                logging.info("create_ticket: No ticket types enabled")
+                await asyncio.sleep(settings.CREATE_TICKET_INTERVAL)
+                continue
+            while not self.db.initialized:
+                logging.info("create_ticket: DB not initialized")
+                await asyncio.sleep(5)
+
+            while True:
+                selected_type: TicketType = random.choice(list(TicketType))
+                if selected_type == TicketType.CASCADE and settings.ENABLE_CASCADE:
+                    break
+                elif selected_type == TicketType.SENSE and settings.ENABLE_SENSE:
+                    break
+                elif selected_type == TicketType.NFT and settings.ENABLE_NFT:
+                    break
+                elif selected_type == TicketType.COLLECTION and settings.ENABLE_COLLECTIONS:
+                    break
             logging.info(f"create_ticket: Create {selected_type.name} ticket on {self.network} network")
             try:
                 ok = False
@@ -130,11 +154,9 @@ class NetworkMaker:
                 elif selected_type == TicketType.SENSE:
                     ok = await self._register_sense_ticket()
                 elif selected_type == TicketType.NFT:
-                    ok = await self._register_cascade_ticket()              ### !!!! TEMPORARY
-                    # ok = await self._register_nft_ticket()
+                    ok = await self._register_nft_ticket()
                 elif selected_type == TicketType.COLLECTION:
-                    ok = await self._register_sense_ticket()                ### !!!! TEMPORARY
-                    # ok = await self._register_collection_ticket()
+                    ok = await self._register_collection_ticket()
 
                 if ok:
                     logging.info(f"create_ticket: DONE")
@@ -177,8 +199,8 @@ class NetworkMaker:
             return False
         collection_act_txid, open_api_group_id = "", ""
         file_list, image_rec_id = [image_rec['file_path']], image_rec['id']
-        output: RequestResult = await self.client.sense_api.sense_submit_request(file_list,
-                                                                                 collection_act_txid, open_api_group_id)
+        output: RequestResult = await self.client.sense_api.sense_process_request(file_list, collection_act_txid,
+                                                                                  open_api_group_id)
         res_id = reg_txid = act_txid = res_status = ""
         if output:
             if output.results and len(output.results) > 0:
@@ -199,10 +221,21 @@ class NetworkMaker:
         if not image_rec:
             logging.info("No images to process for NFT, wait for next iteration")
             return False
+
+        name = image_rec['name']
+        (base, ext) = os.path.splitext(name)
+        while ext:
+            name = base
+            (base, ext) = os.path.splitext(name)
+
+        creator_name = image_rec['creator_name']
+        if not creator_name:
+            creator_name = "Pastel Network"
+
         nft_details_payload = {
             "description": image_rec['description'],
-            "name": image_rec['name'],
-            "creator_name": image_rec['creator_name'],
+            "name": name,
+            "creator_name": creator_name,
             "keywords": image_rec['keywords'],
             "series_name": image_rec['series_name'],
             "issued_copies": biased_random(),
@@ -212,7 +245,7 @@ class NetworkMaker:
         nft_details_payload_str = json.dumps(nft_details_payload)
         collection_act_txid, open_api_group_id = "", ""
         make_publicly_accessible = random.choice([True, False])
-        file_list, image_rec_id = [image_rec['file_path']], image_rec['id']
+        file_list, image_rec_id = image_rec['file_path'], image_rec['id']
         output: RequestResult = await self.client.nft_api.nft_process_request(file_list, nft_details_payload_str,
                                                                               make_publicly_accessible,
                                                                               collection_act_txid, open_api_group_id)
@@ -244,6 +277,10 @@ class NetworkMaker:
             return
         logging.info(f"check_statuses: Starting task...")
         while True:
+            while not self.db.initialized:
+                logging.info("create_ticket: DB not initialized")
+                await asyncio.sleep(5)
+
             logging.info(f"check_statuses: Check ticket registration statuses")
             try:
                 await self.update_statuses()
@@ -260,19 +297,24 @@ class NetworkMaker:
                                         self.client.cascade_api.cascade_get_result,
                                         self.db.update_cascade_status)
         await self._check_ticket_status(self.db.get_sense_pending,
-                                        self.client.sense_api.sense_get_result_by_id,
+                                        self.client.sense_api.sense_get_result,
                                         self.db.update_sense_status)
         await self._check_ticket_status(self.db.get_nft_pending,
-                                        self.client.nft_api.nft_get_result_by_result_id,
+                                        self.client.nft_api.nft_get_result,
                                         self.db.update_nft_status)
         # await self._check_ticket_status(self.db.get_collections_pending,
         #                                 self.client.collection_api.collection_get_result,
         #                                 self.db.update_collection_status)
 
     async def collect_stats(self):
-        all_tickets = await self.db.read_all_images()
-        logging.info("check_statuses: Total images: {}".format(len(all_tickets)))
-        self.statistics['Total images'] = len(all_tickets)
+        all_images = await self.db.read_all_images()
+        images_for_cascade = await self.db.number_of_images_for_cascade()
+        images_for_sense_or_nft = await self.db.number_of_images_for_sense_or_nft()
+
+        logging.info("check_statuses: Total images: {}".format(len(all_images)))
+        self.statistics['Total images'] = len(all_images)
+        self.statistics['Images for Cascade'] = images_for_cascade[0]
+        self.statistics['Images for Sense or NFT'] = images_for_sense_or_nft[0]
         await self.log_ticket_counts(self.db.get_cascade_counts, "Cascade")
         await self.log_ticket_counts(self.db.get_sense_counts, "Sense")
         await self.log_ticket_counts(self.db.get_nft_counts, "NFT")
@@ -317,7 +359,13 @@ class NetworkMaker:
         await self.db.initialize_db()
         app = web.Application()
         aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(os.path.join(BASE_DIR, 'web')))
-        app.add_routes([web.get('/', self.show_statistics)])
+        app.add_routes([web.get('/', self.show_statistics),
+                        web.post('/toggle_create_images', self.toggle_create_images),
+                        web.post('/toggle_create_tickets', self.toggle_create_tickets),
+                        web.post('/toggle_enable_cascade', self.toggle_enable_cascade),
+                        web.post('/toggle_enable_sense', self.toggle_enable_sense),
+                        web.post('/toggle_enable_nft', self.toggle_enable_nft),
+                        web.post('/toggle_enable_collections', self.toggle_enable_collections)])
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, port=8080)
@@ -333,11 +381,72 @@ class NetworkMaker:
         logging.info("Exiting...")
 
     async def show_statistics(self, request):
-        # await self.collect_stats()
         await self.update_statuses()
-        response = aiohttp_jinja2.render_template('statistics.html', request,
-                                                  {'statistics': self.statistics, 'network': self.network})
+        await self.collect_stats()
+        try:
+            response = aiohttp_jinja2.render_template('statistics.html', request,
+                                                      {
+                                                          'statistics': self.statistics,
+                                                          'network': self.network,
+                                                          'create_images': settings.ENABLE_GENERATE_IMAGES,
+                                                          'create_tickets': settings.ENABLE_CREATE_TICKETS,
+                                                          'enable_cascade': settings.ENABLE_CASCADE,
+                                                          'enable_sense': settings.ENABLE_SENSE,
+                                                          'enable_nft': settings.ENABLE_NFT,
+                                                          'enable_collections': settings.ENABLE_COLLECTIONS,
+                                                      })
+        except Exception as error:
+            logging.exception(error)
+            response = web.Response(text="Error")
         return response
+
+    @staticmethod
+    async def toggle_create_images(request):
+        settings.ENABLE_GENERATE_IMAGES = not settings.ENABLE_GENERATE_IMAGES
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-create-images" {checked} hx-post="/toggle_create_images" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_GENERATE_IMAGES else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
+
+    @staticmethod
+    async def toggle_create_tickets(request):
+        settings.ENABLE_CREATE_TICKETS = not settings.ENABLE_CREATE_TICKETS
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-create-tickets" {checked} hx-post="/toggle_create_tickets" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_CREATE_TICKETS else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
+
+    @staticmethod
+    async def toggle_enable_cascade(request):
+        settings.ENABLE_CASCADE = not settings.ENABLE_CASCADE
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-enable-cascade" {checked} hx-post="/toggle_enable_cascade" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_CASCADE else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
+
+    @staticmethod
+    async def toggle_enable_sense(request):
+        settings.ENABLE_SENSE = not settings.ENABLE_SENSE
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-enable-sense" {checked} hx-post="/toggle_enable_sense" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_SENSE else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
+
+    @staticmethod
+    async def toggle_enable_nft(request):
+        settings.ENABLE_NFT = not settings.ENABLE_NFT
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-enable-nft" {checked} hx-post="/toggle_enable_nft" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_NFT else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
+
+    @staticmethod
+    async def toggle_enable_collections(request):
+        settings.ENABLE_COLLECTIONS = not settings.ENABLE_COLLECTIONS
+        checkbox = '<input type="checkbox" class="form-checkbox" id="toggle-enable-collections" {checked} hx-post="/toggle_enable_collections" hx-swap="outerHTML">'.format(
+            checked='checked' if settings.ENABLE_COLLECTIONS else ''
+        )
+        return web.Response(text=checkbox, content_type='text/html')
 
 
 async def shutdown_tasks_and_cleanup(loop):
@@ -357,10 +466,13 @@ def graceful_shutdown(signal, loop):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Pastel Network Maker')
-    parser.add_argument('-n', '--network', type=str, required=True, help='Network to use - mainnet or testnet')
+    parser.add_argument('-n', '--network', type=str, required=True, help='Network to use - mainnet, testnet or devnet')
     parser.add_argument('-k', '--api-key', type=str, required=True, help='API Key to use')
     parser.add_argument('-l', '--logfile', type=str, required=False, help='Log file')
     args = parser.parse_args()
+
+    if args.network not in ["mainnet", "testnet", "devnet"]:
+        raise ValueError("Invalid network")
 
     setup_logging(args.logfile)
 

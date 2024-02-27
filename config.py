@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     CHECK_INTERVAL: int = 600
     GENERATE_IMAGE_INTERVAL: int = 10
 
+    ENABLE_CASCADE: bool = False
+    ENABLE_SENSE: bool = False
+    ENABLE_NFT: bool = False
+    ENABLE_COLLECTIONS: bool = False
+
     USE_GPU: bool
     PROMPT_MODEL_PATH: str
     PROMPT_CHAT_FORMAT: str
@@ -68,14 +73,14 @@ GENRE_LIST = [
     "Gothic Manor",
     "Abstract Art",
     "Still Life",
-    "Portrait Photography",
+    # "Portrait Photography",
     "Wildlife Photography",
     "Black and White",
     "Cityscape Images",
-    "Fashion Photography",
+    # "Fashion Photography",
     "Landscape Images",
     "Street Photography",
-    "Documentary Photography",
+    # "Documentary Photography",
     "Conceptual Art",
     "Fine Art",
     "Sports Photography",
@@ -85,5 +90,5 @@ GENRE_LIST = [
     "Architectural Photography",
     "Underwater Photography",
     "Macro Photography",
-    "Wedding Photography"
+    # "Wedding Photography"
 ]
